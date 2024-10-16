@@ -284,6 +284,7 @@ class BaseSubstackScraper(ABC):
         params_dict['w'] = '200'
         params_dict['c'] = 'fill'
         params_dict['ar'] = '1:1'
+        params_dict['h'] = '200'
         
         # Reconstruct the parameters string
         new_params = ','.join([f"{k}_{v}" for k, v in params_dict.items()])
