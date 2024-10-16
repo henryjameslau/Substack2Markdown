@@ -19,9 +19,14 @@ function populateEssays(data) {
     const essaysContainer = document.getElementById('essays-container');
     const list = data.map(essay => `
         <li>
+            <div class="image-container">
+            <img src=${essay.image} width="200" height="200"/>
+            </div>
+            <div class="essay-container">
             <a href="../${showHTML ? essay.html_link : essay.file_link}" target="_blank">${essay.title}</a>
             <div class="subtitle">${essay.subtitle}</div>
             <div class="metadata">${essay.like_count} Likes - ${essay.date}</div>
+            </div>
         </li>
     `).join('');
     essaysContainer.innerHTML = `<ul>${list}</ul>`;

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 from time import sleep
@@ -17,16 +18,16 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.chrome.service import Service
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, urlencode
 from config import EMAIL, PASSWORD
 
-USE_PREMIUM: bool = False  # Set to True if you want to login to Substack and convert paid for posts
-BASE_SUBSTACK_URL: str = "https://www.thefitzwilliam.com/"  # Substack you want to convert to markdown
+USE_PREMIUM: bool = True  # Set to True if you want to login to Substack and convert paid for posts
+BASE_SUBSTACK_URL: str = "https://kitchenprojects.substack.com/"  # Substack you want to convert to markdown
 BASE_MD_DIR: str = "substack_md_files"  # Name of the directory we'll save the .md essay files
 BASE_HTML_DIR: str = "substack_html_pages"  # Name of the directory we'll save the .html essay files
 HTML_TEMPLATE: str = "author_template.html"  # HTML template to use for the author page
 JSON_DATA_DIR: str = "data"
-NUM_POSTS_TO_SCRAPE: int = 3  # Set to 0 if you want all posts
+NUM_POSTS_TO_SCRAPE: int = 0  # Set to 0 if you want all posts
 
 
 def extract_main_part(url: str) -> str:
@@ -247,6 +248,50 @@ class BaseSubstackScraper(ABC):
         metadata += f"**Likes:** {like_count}\n\n"
 
         return metadata + content
+    
+    @staticmethod
+    def modify_substack_image_url(original_url):
+        """
+        Takes a Substack image URL and returns one with modified parameters for a square aspect ratio
+        """
+        if not original_url:
+            return ""
+        
+        # Parse the URL
+        parsed_url = urlparse(original_url)
+        
+        # Split the path to separate the fetch part and the image URL
+        path_parts = parsed_url.path.split('/fetch/')
+      
+        if len(path_parts) != 2:
+            return original_url  # URL format not as expected, return original
+        
+        path_parts=path_parts[1].split("/https")
+       
+        fetch_params, image_url = path_parts
+       
+        # Split the parameters
+        params = fetch_params.split(',')
+        
+        # Create a dictionary of parameters
+        params_dict = {}
+        for param in params:
+            if '_' in param:
+                key, value = param.split('_', 1)
+                params_dict[key] = value
+        
+        # Modify only specific parameters
+        params_dict['w'] = '200'
+        params_dict['c'] = 'fill'
+        params_dict['ar'] = '1:1'
+        
+        # Reconstruct the parameters string
+        new_params = ','.join([f"{k}_{v}" for k, v in params_dict.items()])
+        
+        # Reconstruct the URL
+        new_url = f"{parsed_url.scheme}://{parsed_url.netloc}/image/fetch/{new_params}/https{image_url}"
+        
+        return new_url
 
     def extract_post_data(self, soup: BeautifulSoup) -> Tuple[str, str, str, str, str]:
         """
@@ -259,7 +304,7 @@ class BaseSubstackScraper(ABC):
 
         date_element = soup.find(
             "div",
-            class_="pencraft pc-reset _color-pub-secondary-text_3axfk_207 _line-height-20_3axfk_95 _font-meta_3axfk_131 _size-11_3axfk_35 _weight-medium_3axfk_162 _transform-uppercase_3axfk_242 _reset_3axfk_1 _meta_3axfk_442"
+            class_="pencraft pc-reset _color-pub-secondary-text_btefp_190 _line-height-20_btefp_80 _font-meta_btefp_115 _size-11_btefp_31 _weight-medium_btefp_145 _transform-uppercase_btefp_225 _reset_btefp_1 _meta_btefp_425"
         )
         date = date_element.text.strip() if date_element else "Date not found"
 
@@ -270,10 +315,14 @@ class BaseSubstackScraper(ABC):
             else "0"
         )
 
+        image_element = soup.find("meta", property="og:image")
+        image_url = image_element.get("content") if image_element else ""
+        modified_image_url = self.modify_substack_image_url(image_url)
+
         content = str(soup.select_one("div.available-content"))
         md = self.html_to_md(content)
         md_content = self.combine_metadata_and_content(title, subtitle, date, like_count, md)
-        return title, subtitle, like_count, date, md_content
+        return title, subtitle, like_count, date, md_content, modified_image_url
 
     @abstractmethod
     def get_url_soup(self, url: str) -> str:
@@ -314,7 +363,7 @@ class BaseSubstackScraper(ABC):
                     if soup is None:
                         total += 1
                         continue
-                    title, subtitle, like_count, date, md = self.extract_post_data(soup)
+                    title, subtitle, like_count, date, md, image_url = self.extract_post_data(soup)
                     self.save_to_file(md_filepath, md)
 
                     # Convert markdown to HTML and save
@@ -327,7 +376,8 @@ class BaseSubstackScraper(ABC):
                         "like_count": like_count,
                         "date": date,
                         "file_link": md_filepath,
-                        "html_link": html_filepath
+                        "html_link": html_filepath,
+                        "image":image_url
                     })
                 else:
                     print(f"File already exists: {md_filepath}")
